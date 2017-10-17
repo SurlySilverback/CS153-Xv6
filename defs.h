@@ -103,7 +103,7 @@ int             pipewrite(struct pipe*, char*, int);
 
 //PAGEBREAK: 16
 // proc.c
-void            exit(void);
+void            exit(int); 			// Lab 01a: Originally "void exit(void)"
 int             fork(void);
 int             growproc(int);
 int             kill(int);
@@ -113,9 +113,12 @@ void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
 void            sleep(void*, struct spinlock*);
 void            userinit(void);
-int             wait(void);
+int             wait(int*); 			// Lab 01:1b: Originally "wait(void);"
+int		waitpid(int, int*);		// Lab 01:1c
 void            wakeup(void*);
 void            yield(void);
+int		setpriority(int, int);		// Lab 01:02
+int		v2p(int, int*);			// Lab 02:01
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -151,6 +154,7 @@ int             argstr(int, char**);
 int             fetchint(uint, int*);
 int             fetchstr(uint, char**);
 void            syscall(void);
+void            hello(void); // Lab 00, added for system call
 
 // timer.c
 void            timerinit(void);
@@ -176,7 +180,7 @@ int             deallocuvm(pde_t*, uint, uint);
 void            freevm(pde_t*);
 void            inituvm(pde_t*, char*, uint);
 int             loaduvm(pde_t*, char*, struct inode*, uint, uint);
-pde_t*          copyuvm(pde_t*, uint);
+pde_t*          copyuvm(pde_t*, uint, uint); // Lab 02: 03 : Original code:"pde_t*          copyuvm(pde_t*, uint);"
 void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);

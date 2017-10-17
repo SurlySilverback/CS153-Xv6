@@ -36,8 +36,15 @@ exec(char *path, char **argv)
   if((pgdir = setupkvm()) == 0)
     goto bad;
 
-  // Load program into memory.
+  // Lab 02:02 : Allocating the first page as inaccessible so that null pointer dereferences return a trap 14 exception
   sz = 0;
+  if((sz = allocuvm(pgdir, 0, PGSIZE)) == 0)
+    goto bad;
+  clearpteu(pgdir, (char*)(sz - PGSIZE));
+
+
+  // Load program into memory.
+  //sz = 0; // Lab 02:02 : We set sz = 0 above, so we don't want it to begin execution here.
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
     if(readi(ip, (char*)&ph, off, sizeof(ph)) != sizeof(ph))
       goto bad;
@@ -60,11 +67,12 @@ exec(char *path, char **argv)
 
   // Allocate two pages at the next page boundary.
   // Make the first inaccessible.  Use the second as the user stack.
-  sz = PGROUNDUP(sz);
-  if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
+  //sz = USERTOP;
+  if((allocuvm(pgdir, USERTOP - 2*PGSIZE, USERTOP)) == 0) // Original code: sp = allocuvm(...)
     goto bad;
   clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
-  sp = sz;
+  //sp = sz; // Original code
+  sp = USERTOP;
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {

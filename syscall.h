@@ -20,3 +20,7 @@
 #define SYS_link   19
 #define SYS_mkdir  20
 #define SYS_close  21
+#define SYS_hello  22		// Lab 00, system call added
+#define SYS_waitpid 23		// Lab 01:1c
+#define SYS_setpriority 24	// Lab 01:2
+#define SYS_v2p 25		// Lab 02:01

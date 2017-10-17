@@ -17,7 +17,7 @@
 int
 fetchint(uint addr, int *ip)
 {
-  if(addr >= proc->sz || addr+4 > proc->sz)
+  if(addr >= USERTOP || addr+4 > USERTOP)		// Lab 02:03 : Original condition:		if(addr >= proc->sz || addr+4 > proc->sz)	
     return -1;
   *ip = *(int*)(addr);
   return 0;
@@ -31,7 +31,7 @@ fetchstr(uint addr, char **pp)
 {
   char *s, *ep;
 
-  if(addr >= proc->sz)
+  if(addr >= USERTOP) 							// Lab 02:03 : Original condition:		if(addr >= proc->sz)
     return -1;
   *pp = (char*)addr;
   ep = (char*)proc->sz;
@@ -58,7 +58,7 @@ argptr(int n, char **pp, int size)
 
   if(argint(n, &i) < 0)
     return -1;
-  if(size < 0 || (uint)i >= proc->sz || (uint)i+size > proc->sz)
+  if(size < 0 || (uint)i >= USERTOP || (uint)i+size > USERTOP)	// Lab 02:03 : Original condition : if(size < 0 || (uint)i >= proc->sz || (uint)i+size > proc->sz)
     return -1;
   *pp = (char*)i;
   return 0;
@@ -98,6 +98,10 @@ extern int sys_unlink(void);
 extern int sys_wait(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
+extern int sys_hello(void); 		// Lab 00, added for system call
+extern int sys_waitpid(void);		// Lab 01:1c
+extern int sys_setpriority(void);	// Lab 01:2
+extern int sys_v2p(void);			// Lab 02:01
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -121,6 +125,10 @@ static int (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_hello]   sys_hello, 				// Lab 00, added function pointer
+[SYS_waitpid] sys_waitpid,				// Lab 01:1c
+[SYS_setpriority] sys_setpriority,		// Lab 01:2
+[SYS_v2p] sys_v2p,						// Lab 02:01
 };
 
 void

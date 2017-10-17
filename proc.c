@@ -50,6 +50,8 @@ found:
   p->state = EMBRYO;
   p->pid = nextpid++;
 
+  p->priority = 20;
+
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -149,9 +151,9 @@ fork(void)
   }
 
   // Copy process state from p.
-  if((np->pgdir = copyuvm(proc->pgdir, proc->sz)) == 0){
-    kfree(np->kstack);
-    np->kstack = 0;
+  if((np->pgdir = copyuvm(proc->pgdir, proc->sz, proc->tf->esp)) == 0){	//  Lab 02:03 : This call to copyuvm did not originally include the arg proc->sp.
+    kfree(np->kstack);												//  We include it here because we edited copyuvm() in vm.c to have one additional argument.
+    np->kstack = 0;													//  We copy the location of the stack pointer when copying user virtual memory.
     np->state = UNUSED;
     return -1;
   }
@@ -182,9 +184,9 @@ fork(void)
 
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
-// until its parent calls wait() to find out it exited.
+// until its parent calls wait(0) to find out it exited.
 void
-exit(void)
+exit(int status)	// Lab 01: Changed from: void exit(void)
 {
   struct proc *p;
   int fd;
@@ -207,7 +209,7 @@ exit(void)
 
   acquire(&ptable.lock);
 
-  // Parent might be sleeping in wait().
+  // Parent might be sleeping in wait(0).
   wakeup1(proc->parent);
 
   // Pass abandoned children to init.
@@ -218,17 +220,20 @@ exit(void)
         wakeup1(initproc);
     }
   }
-
+  
   // Jump into the scheduler, never to return.
   proc->state = ZOMBIE;
+  //proc->exit_status = status; // Lab 01a: This line is new.
+  //cprintf("Exit status: %d", status);
   sched();
   panic("zombie exit");
+
 }
 
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
 int
-wait(void)
+wait(int *status)// Lab 01b: Originally "wait(void)"
 {
   struct proc *p;
   int havekids, pid;
@@ -243,6 +248,12 @@ wait(void)
       havekids = 1;
       if(p->state == ZOMBIE){
         // Found one.
+
+	if (status != 0)  // Lab 01b: This conditional if-block is new.
+	{
+	    *status = p->exit_status;
+	}
+
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
@@ -268,6 +279,55 @@ wait(void)
   }
 }
 
+
+// Wait a specific child process to exit and return its pid.
+// Return -1 if this process has no children.
+int
+waitpid(int pid, int *status)// Lab 01c: New function
+{
+  struct proc *p;
+  int targ_pid;
+
+  acquire(&ptable.lock);
+  for(;;){
+    // Scan through table until the matching child is found
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->pid != pid)
+        continue;
+      if(p->state == ZOMBIE){
+        // Found it.
+
+	if (status != 0)  // Lab 01b: This conditional if-block is new.
+	{
+	    *status = p->exit_status;
+	}
+
+        targ_pid = p->pid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        freevm(p->pgdir);
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        p->state = UNUSED;
+        release(&ptable.lock);
+        return targ_pid;
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if(proc->killed){
+      release(&ptable.lock);
+      return -1;
+    }
+
+    // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+    sleep(proc, &ptable.lock);  //DOC: wait-sleep
+  }
+}
+
+
 //PAGEBREAK: 42
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -285,27 +345,74 @@ scheduler(void)
     // Enable interrupts on this processor.
     sti();
 
-    // Loop over process table looking for process to run.
+    int min_priority = 64;	// Establish the minimum priority int.
+    int old_priority = 0;	// Used for implementing priority inheritance. Lab 01:EC.
+    int inherit_flag = 0;	// Used to indicate when a priority inheritance took place.
+
     acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      swtch(&cpu->scheduler, p->context);
-      switchkvm();
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      proc = 0;
+    for( p = ptable.proc; p < &ptable.proc[NPROC]; p++ ) // Now run through the table of procs...
+    {
+        if ( p->state != RUNNABLE )	// ...(if the currennt proc isn't runnable, skip it)...
+            continue;
+        
+        if ( p->priority < min_priority )	// If the currennt proc has a lower priority
+        {					// than the current lowest...
+            //proc = p;				// ...dump this process into the proc container...
+            min_priority = p->priority;		// ...store its priority as the new min and run it.
+        }
     }
+
+    for( p = ptable.proc; p < &ptable.proc[NPROC]; p++ )
+    {
+        if ( p->state == RUNNING )		// Lab 01:EC: Priority Inheritance
+        {
+            inherit_flag = 1;
+            old_priority = p->priority;		// If the currently running process doesn't have the highest
+            p->priority = min_priority;		// priority, promote it temporarily. Save it's old priority 
+        }					// so it can be restored at the end of its execution.
+    }
+
+
+    for( p = ptable.proc; p < &ptable.proc[NPROC]; p++ ) // Now run through the table of procs...
+    {     
+        if ( p->state != RUNNABLE )	// ...(if the currennt proc isn't runnable, skip it)...
+            continue;
+
+        if ( p->priority == min_priority )	 
+        {					 
+            proc = p;				
+            switchuvm(p);
+            p->state = RUNNING;
+            swtch(&cpu->scheduler, p->context);
+            switchkvm();
+        }
+    }
+
+
+    /* ORIGINAL CODE 
+    if ( proc != 0 )
+    {
+        // Switch to chosen process.  It is the process's job
+        // to release ptable.lock and then reacquire it
+        // before jumping back to us.
+        switchuvm(proc);
+        proc->state = RUNNING;
+        swtch(&cpu->scheduler, proc->context);
+        switchkvm();
+    }*/
+
+    if ( inherit_flag == 1 )
+    {
+        proc->priority = old_priority;	// Priority inheritance: once the running task is done, revert its pri.
+        inherit_flag = 0;
+    }
+
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
     release(&ptable.lock);
 
+    proc = 0;
   }
 }
 
@@ -482,4 +589,77 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+
+// Lab 00, added this function for test system call
+void 
+hello(void)
+{
+   cprintf("\n\n Whazzap from da kernel! \n\n");
+}
+
+
+// Lab 01:2: Implementing priority scheduling. Entire function is new.
+int 
+setpriority( int priority, int pid )
+{
+    struct proc *p;
+    int found_pid = 0;
+
+    acquire( &ptable.lock );  // Secure CPU lock
+
+    // At this point, the function searches for the pid of the process
+    // whose priority integer we wish to change.
+    for ( p = ptable.proc; p < &ptable.proc[NPROC]; ++p )
+    {
+        if ( p->pid == pid )		// If the PID is found...
+        {
+            found_pid = 1;		// ...set it as found...
+            p->priority = priority;	// ...and change its priority.
+            break;
+        }
+    }
+
+    release( &ptable.lock );
+
+    if ( !found_pid )			// If the PID is not found
+    {					// return -1 error.
+        return -1;
+    }
+
+    return 0;
+}
+
+
+// Lab 02:01 : v2p is a system call that takes a virtual address and returns
+// a physical address. v2p will return an error if the virtual address is 
+// not valid.
+int v2p( int virtual, int *physical )
+{
+    pde_t *pde;		// pde will check for the existence of the entry.
+    pte_t *pgtab;	// pgtab will hold the verified entry.
+    uint offset;	// offset contains the offset of the entry location.
+
+    offset = virtual & 0xFFF;	// The offset is contained in the last 12 bits of the virtual
+				// address. We grab this offset value by doing a mask with AND.
+				// Later, we will add (OR) offset to our physical page number
+				// to get our physical address.
+
+    pde = &( proc-> pgdir[ PDX( &virtual ) ] ); // Retrieves the page directory of the process
+
+    if (*pde & PTE_P)  					// If the page directory entry exists...
+    {
+        pgtab = ( pte_t* )P2V( PTE_ADDR( *pde ) );	// ...point pgtab to it.
+    }
+
+    else						// If it doesn't exist, return error.
+    {
+        return -1;
+    }
+
+    
+    *physical = pgtab[ PTX( &virtual ) ] | offset ;	// Add (OR) the offset to the PPN (using
+							// an OR bit mask) to get the physical
+    return 0;						// address.
 }

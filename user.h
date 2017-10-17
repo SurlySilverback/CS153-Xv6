@@ -3,8 +3,9 @@ struct rtcdate;
 
 // system calls
 int fork(void);
-int exit(void) __attribute__((noreturn));
-int wait(void);
+void exit(int status) __attribute__((noreturn)); // Lab 01:1a: Originally "int exit(void) __attribute__((noreturn));"
+int wait(int*); 		// Lab 01:1b: Originally "int wait(void);"
+int waitpid(int, int*);		// Lab 01:1c: New code.
 int pipe(int*);
 int write(int, void*, int);
 int read(int, void*, int);
@@ -23,6 +24,8 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+void hello(void);		// Lab 00, added for test system call.
+int setpriority(int, int);	// Lab 01:2 Adding priority scheduling.
 
 // ulib.c
 int stat(char*, struct stat*);
